@@ -3,108 +3,191 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Raiku Hand Tracking</title>
-    <!-- Подключаем MediaPipe через CDN -->
+    <title>Raiku Cosmic Experience</title>
+    
+    <!-- Скрипты для ИИ трекинга рук -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
-            overflow: hidden; background: #000;
-            display: flex; align-items: center; justify-content: center;
+            overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif;
         }
 
-        /* Космический фон */
-        #space-bg {
+        /* Вебкамера на заднем фоне */
+        #video_container {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: url('https://images.unsplash.com/photo-1475274047050-1d0c0975c63e?q=80&w=2072&auto=format&fit=crop') no-repeat center center;
-            background-size: cover;
-            opacity: 0;
-            transition: opacity 0.5s ease;
             z-index: 1;
+            opacity: 0.3; /* Прозрачность камеры */
         }
-
-        /* Логотип Raiku */
-        #logo {
-            position: relative;
-            z-index: 10;
-            width: 300px;
-            height: auto;
-            display: none; /* Скрыт по умолчанию */
-            filter: drop-shadow(0 0 20px rgba(0, 242, 255, 0.8));
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-
-        /* Веб-камера (миниатюра для отладки) */
         video {
-            position: fixed;
-            bottom: 20px; right: 20px;
-            width: 200px; border-radius: 10px;
-            transform: scaleX(-1); /* Отражаем зеркально */
-            border: 2px solid rgba(255,255,255,0.2);
-            z-index: 100;
+            width: 100%; height: 100%; object-fit: cover;
+            transform: scaleX(-1); /* Зеркальное отображение */
         }
 
-        .loading {
-            color: white; font-family: sans-serif; position: absolute; z-index: 200;
+        /* Холст для звезд и логотипа */
+        #canvas {
+            position: fixed;
+            top: 0; left: 0;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        #loader {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #ccff00; z-index: 10; font-weight: bold; text-transform: uppercase;
+            letter-spacing: 2px;
         }
     </style>
 </head>
 <body>
 
-    <div id="loading" class="loading">Загрузка ИИ-трекера...</div>
-    <div id="space-bg"></div>
+    <div id="loader">Загрузка Raiku Engine...</div>
     
-    <!-- Сюда вставь свой логотип -->
-    <img id="logo" src="logo.png" alt="Raiku Logo">
+    <div id="video_container">
+        <video id="input_video"></video>
+    </div>
 
-    <video id="input_video"></video>
+    <canvas id="canvas"></canvas>
 
     <script>
         const videoElement = document.getElementById('input_video');
-        const logo = document.getElementById('logo');
-        const spaceBg = document.getElementById('space-bg');
-        const loading = document.getElementById('loading');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const loader = document.getElementById('loader');
 
-        // Функция определения: сжат кулак или нет
-        function isFist(landmarks) {
-            // Простая логика: если кончики пальцев (8, 12, 16, 20) 
-            // находятся ниже средних суставов (6, 10, 14, 18) — это кулак.
-            const fingerTips = [8, 12, 16, 20];
-            const fingerBase = [6, 10, 14, 18];
+        let particles = [];
+        let logoPoints = [];
+        const particleCount = 1800; // Количество "звезд"
+        let handPos = { x: 0, y: 0, active: false, isFist: false };
+
+        // Настройки размеров
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // 1. ПОДГОТОВКА ЛОГОТИПА (извлечение координат пикселей)
+        const logoImg = new Image();
+        logoImg.src = 'logo.png'; // Твой файл должен называться так
+        logoImg.onload = () => {
+            const tempCanvas = document.createElement('canvas');
+            const tCtx = tempCanvas.getContext('2d');
+            const size = 300; // Размер логотипа внутри кулака
+            tempCanvas.width = size;
+            tempCanvas.height = size;
             
-            let closedFingers = 0;
-            for (let i = 0; i < fingerTips.length; i++) {
-                if (landmarks[fingerTips[i]].y > landmarks[fingerBase[i]].y) {
-                    closedFingers++;
+            // Рисуем логотип на невидимом холсте, чтобы считать пиксели
+            tCtx.drawImage(logoImg, 0, 0, size, size);
+            const imageData = tCtx.getImageData(0, 0, size, size).data;
+
+            for (let y = 0; y < size; y += 6) { // шаг 6 пикселей для оптимизации
+                for (let x = 0; x < size; x += 6) {
+                    const alpha = imageData[(y * size + x) * 4 + 3];
+                    if (alpha > 128) {
+                        logoPoints.push({ x: x - size/2, y: y - size/2 });
+                    }
                 }
             }
-            return closedFingers >= 3; 
+            initParticles();
+            loader.innerText = "Покажи руку камере";
+        };
+
+        // 2. ИНИЦИАЛИЗАЦИЯ ЧАСТИЦ (ЗВЕЗД)
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.size = Math.random() * 2 + 1;
+                this.color = `rgba(204, 255, 0, ${Math.random() * 0.8 + 0.2})`; // Кислотно-зеленый Raiku
+            }
+
+            update() {
+                if (handPos.isFist && logoPoints.length > 0) {
+                    // РЕЖИМ КУЛАКА: Летим к логотипу
+                    const targetIdx = particles.indexOf(this) % logoPoints.length;
+                    const target = {
+                        x: (handPos.x * canvas.width) + logoPoints[targetIdx].x,
+                        y: (handPos.y * canvas.height) + logoPoints[targetIdx].y
+                    };
+                    
+                    this.x += (target.x - this.x) * 0.15; // Плавное притяжение
+                    this.y += (target.y - this.y) * 0.15;
+                    this.color = "#ccff00"; 
+                } else {
+                    // РЕЖИМ ЗВЕЗДНОГО НЕБА: Хаотичное движение
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.color = `rgba(204, 255, 0, ${Math.random() * 0.5 + 0.5})`;
+
+                    if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+                    if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+                }
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                // Эффект свечения для "звезд"
+                if (!handPos.isFist) {
+                    ctx.shadowBlur = 5;
+                    ctx.shadowColor = "#ccff00";
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+            }
+        }
+
+        function initParticles() {
+            for (let i = 0; i < particleCount; i++) {
+                particles.push(new Particle());
+            }
+            animate();
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+            requestAnimationFrame(animate);
+        }
+
+        // 3. ЛОГИКА ТРЕКИНГА РУК
+        function isFist(landmarks) {
+            const fingerTips = [8, 12, 16, 20];
+            const fingerBase = [6, 10, 14, 18];
+            let closedFingers = 0;
+            for (let i = 0; i < fingerTips.length; i++) {
+                if (landmarks[fingerTips[i]].y > landmarks[fingerBase[i]].y) closedFingers++;
+            }
+            return closedFingers >= 3;
         }
 
         function onResults(results) {
-            loading.style.display = 'none';
-
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                loader.style.opacity = 0;
                 const hand = results.multiHandLandmarks[0];
                 
-                if (isFist(hand)) {
-                    // КУЛАК: Показываем лого, скрываем космос
-                    logo.style.display = 'block';
-                    spaceBg.style.opacity = '0';
-                } else {
-                    // ОТКРЫТАЯ ЛАДОНЬ: Скрываем лого, показываем космос
-                    logo.style.display = 'none';
-                    spaceBg.style.opacity = '1';
-                }
+                // Центр ладони (средняя точка)
+                handPos.x = 1 - hand[9].x; // Инвертируем X для зеркальности
+                handPos.y = hand[9].y;
+                handPos.isFist = isFist(hand);
+            } else {
+                handPos.isFist = false;
             }
         }
 
@@ -115,8 +198,8 @@
         hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
         });
 
         hands.onResults(onResults);
@@ -125,8 +208,8 @@
             onFrame: async () => {
                 await hands.send({image: videoElement});
             },
-            width: 640,
-            height: 480
+            width: 1280,
+            height: 720
         });
         camera.start();
     </script>

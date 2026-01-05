@@ -3,31 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Raiku Cosmic Experience</title>
+    <title>Raiku Multicolor Cosmic</title>
     
-    <!-- Подключение библиотек MediaPipe для ИИ трекинга -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
-            overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif;
+            overflow: hidden; background: #000; font-family: sans-serif;
         }
 
-        /* Камера на фоне с прозрачностью */
+        /* Видео на заднем плане */
         #video_container {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
             z-index: 1;
-            opacity: 0.3; 
         }
         video {
             width: 100%; height: 100%; object-fit: cover;
-            transform: scaleX(-1); /* Отражение для удобства */
+            transform: scaleX(-1);
+            opacity: 0.5; /* Прозрачность камеры */
         }
 
-        /* Главный холст для частиц */
+        /* Холст с частицами поверх видео */
         #canvas {
             position: fixed;
             top: 0; left: 0;
@@ -36,15 +35,15 @@
         }
 
         #loader {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #ccff00; z-index: 10; font-weight: bold; text-transform: uppercase;
-            letter-spacing: 2px; text-align: center;
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            color: #fff; z-index: 10; text-align: center; background: rgba(0,0,0,0.5);
+            padding: 10px 20px; border-radius: 20px;
         }
     </style>
 </head>
 <body>
 
-    <div id="loader">Инициализация Raiku Engine...<br><span style="font-size: 12px; opacity: 0.7;">Разрешите доступ к камере</span></div>
+    <div id="loader">Загрузка Raiku Engine...</div>
     
     <div id="video_container">
         <video id="input_video"></video>
@@ -55,16 +54,18 @@
     <script>
         const videoElement = document.getElementById('input_video');
         const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d', { medical: true });
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         const loader = document.getElementById('loader');
 
         let particles = [];
         let logoPoints = [];
-        const particleCount = 3500; // Количество звезд
+        const particleCount = 2500; // Оптимально для скорости
         let handPos = { x: 0, y: 0, isFist: false };
         let lastFistState = false;
 
-        // Автоподбор размера экрана
+        // Список сочных неоновых цветов
+        const colors = ['#00f2ff', '#00ff9d', '#ff00d4', '#f7ff00', '#ff5e00', '#ffffff'];
+
         function resize() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -72,84 +73,71 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // 1. ЗАГРУЗКА И АНАЛИЗ ЛОГОТИПА
+        // 1. ПОДГОТОВКА ЛОГОТИПА
         const logoImg = new Image();
-        logoImg.src = 'logo.png'; // Убедись, что файл называется именно так
+        logoImg.src = 'logo.png'; 
         logoImg.onload = () => {
             const tempCanvas = document.createElement('canvas');
             const tCtx = tempCanvas.getContext('2d');
-            const size = 350; // Размер логотипа в руке
+            const size = 300; 
             tempCanvas.width = size;
             tempCanvas.height = size;
-            
             tCtx.drawImage(logoImg, 0, 0, size, size);
             const imageData = tCtx.getImageData(0, 0, size, size).data;
 
-            // Извлекаем координаты непрозрачных пикселей
-            for (let y = 0; y < size; y += 4) { 
-                for (let x = 0; x < size; x += 4) {
-                    const alpha = imageData[(y * size + x) * 4 + 3];
-                    if (alpha > 128) {
+            for (let y = 0; y < size; y += 5) { 
+                for (let x = 0; x < size; x += 5) {
+                    if (imageData[(y * size + x) * 4 + 3] > 128) {
                         logoPoints.push({ x: x - size/2, y: y - size/2 });
                     }
                 }
             }
             initParticles();
-            loader.innerHTML = "СИСТЕМА ГОТОВА<br>ПОКАЖИ КУЛАК В КАМЕРУ";
+            loader.innerText = "Система готова. Покажи кулак!";
         };
 
         // 2. КЛАСС ЧАСТИЦЫ
         class Particle {
             constructor() {
-                this.reset();
-            }
-
-            reset() {
                 this.x = Math.random() * canvas.width;
                 this.y = Math.random() * canvas.height;
                 this.vx = (Math.random() - 0.5) * 2;
                 this.vy = (Math.random() - 0.5) * 2;
                 this.size = Math.random() * 2 + 1;
-                this.baseColor = "#ccff00"; // Фирменный цвет Raiku
+                // Назначаем случайный цвет из списка
+                this.color = colors[Math.floor(Math.random() * colors.length)];
             }
 
-            // Функция взрыва при разжатии руки
             explode() {
-                this.vx = (Math.random() - 0.5) * 40; // Сила разлета
-                this.vy = (Math.random() - 0.5) * 40;
+                this.vx = (Math.random() - 0.5) * 35; 
+                this.vy = (Math.random() - 0.5) * 35;
             }
 
             update() {
                 if (handPos.isFist && logoPoints.length > 0) {
-                    // РЕЖИМ СБОРА: Тянемся к точкам логотипа в позиции руки
                     const targetIdx = particles.indexOf(this) % logoPoints.length;
                     const target = {
                         x: (handPos.x * canvas.width) + logoPoints[targetIdx].x,
                         y: (handPos.y * canvas.height) + logoPoints[targetIdx].y
                     };
-                    
-                    this.x += (target.x - this.x) * 0.25; // Быстрая сборка
-                    this.y += (target.y - this.y) * 0.25;
+                    this.x += (target.x - this.x) * 0.2;
+                    this.y += (target.y - this.y) * 0.2;
                 } else {
-                    // РЕЖИМ КОСМОСА: Движение с трением
                     this.x += this.vx;
                     this.y += this.vy;
-                    
-                    this.vx *= 0.94; // Постепенное замедление после взрыва
-                    this.vy *= 0.94;
+                    this.vx *= 0.95; // Трение
+                    this.vy *= 0.95;
 
-                    // Если частица замерла, даем легкое ленивое движение
-                    if (Math.abs(this.vx) < 0.2) this.vx = (Math.random() - 0.5) * 2;
-                    if (Math.abs(this.vy) < 0.2) this.vy = (Math.random() - 0.5) * 2;
+                    if (Math.abs(this.vx) < 0.3) this.vx = (Math.random() - 0.5) * 1.5;
+                    if (Math.abs(this.vy) < 0.3) this.vy = (Math.random() - 0.5) * 1.5;
 
-                    // Отскок от границ экрана
                     if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
                     if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
                 }
             }
 
             draw() {
-                ctx.fillStyle = this.baseColor;
+                ctx.fillStyle = this.color;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
                 ctx.fill();
@@ -164,18 +152,17 @@
         }
 
         function animate() {
-            // Рисуем с легким хвостом (эффект motion blur)
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Очищаем холст полностью, чтобы видеть видео на фоне
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             
-            particles.forEach(p => {
-                p.update();
-                p.draw();
-            });
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+            }
             requestAnimationFrame(animate);
         }
 
-        // 3. ОБРАБОТКА ТРЕКИНГА РУК
+        // 3. ТРЕКИНГ
         function isFist(landmarks) {
             const fingerTips = [8, 12, 16, 20];
             const fingerBase = [6, 10, 14, 18];
@@ -188,19 +175,16 @@
 
         function onResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                loader.style.opacity = 0;
                 const hand = results.multiHandLandmarks[0];
-                
-                // Координаты центра кулака
                 handPos.x = 1 - hand[9].x; 
                 handPos.y = hand[9].y;
                 handPos.isFist = isFist(hand);
 
-                // Если рука только что раскрылась — активируем взрыв
                 if (lastFistState === true && handPos.isFist === false) {
                     particles.forEach(p => p.explode());
                 }
                 lastFistState = handPos.isFist;
+                loader.style.display = "none";
             } else {
                 if (lastFistState) particles.forEach(p => p.explode());
                 handPos.isFist = false;
@@ -214,9 +198,9 @@
 
         hands.setOptions({
             maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.6,
-            minTrackingConfidence: 0.6
+            modelComplexity: 0, // Ускоряем работу ИИ (0 - быстрее, 1 - точнее)
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
         });
 
         hands.onResults(onResults);
@@ -225,8 +209,8 @@
             onFrame: async () => {
                 await hands.send({image: videoElement});
             },
-            width: 1280,
-            height: 720
+            width: 640,
+            height: 480
         });
         camera.start();
     </script>

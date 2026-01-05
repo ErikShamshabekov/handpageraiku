@@ -60,7 +60,7 @@
 
         let particles = [];
         let logoPoints = [];
-        const particleCount = 1800; // Количество "звезд"
+        const particleCount = 3500; // Количество "звезд"
         let handPos = { x: 0, y: 0, active: false, isFist: false };
 
         // Настройки размеров
@@ -86,7 +86,7 @@
             const imageData = tCtx.getImageData(0, 0, size, size).data;
 
             for (let y = 0; y < size; y += 6) { // шаг 6 пикселей для оптимизации
-                for (let x = 0; x < size; x += 6) {
+                for (let x = 0; x < size; x += 4) {
                     const alpha = imageData[(y * size + x) * 4 + 3];
                     if (alpha > 128) {
                         logoPoints.push({ x: x - size/2, y: y - size/2 });
@@ -215,3 +215,4 @@
     </script>
 </body>
 </html>
+

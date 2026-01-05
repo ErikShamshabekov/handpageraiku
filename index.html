@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raiku Hand Tracking</title>
+    <!-- Подключаем MediaPipe через CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background: #000;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* Космический фон */
+        #space-bg {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: url('https://images.unsplash.com/photo-1475274047050-1d0c0975c63e?q=80&w=2072&auto=format&fit=crop') no-repeat center center;
+            background-size: cover;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            z-index: 1;
+        }
+
+        /* Логотип Raiku */
+        #logo {
+            position: relative;
+            z-index: 10;
+            width: 300px;
+            height: auto;
+            display: none; /* Скрыт по умолчанию */
+            filter: drop-shadow(0 0 20px rgba(0, 242, 255, 0.8));
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        /* Веб-камера (миниатюра для отладки) */
+        video {
+            position: fixed;
+            bottom: 20px; right: 20px;
+            width: 200px; border-radius: 10px;
+            transform: scaleX(-1); /* Отражаем зеркально */
+            border: 2px solid rgba(255,255,255,0.2);
+            z-index: 100;
+        }
+
+        .loading {
+            color: white; font-family: sans-serif; position: absolute; z-index: 200;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading" class="loading">Загрузка ИИ-трекера...</div>
+    <div id="space-bg"></div>
+    
+    <!-- Сюда вставь свой логотип -->
+    <img id="logo" src="logo.png" alt="Raiku Logo">
+
+    <video id="input_video"></video>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const logo = document.getElementById('logo');
+        const spaceBg = document.getElementById('space-bg');
+        const loading = document.getElementById('loading');
+
+        // Функция определения: сжат кулак или нет
+        function isFist(landmarks) {
+            // Простая логика: если кончики пальцев (8, 12, 16, 20) 
+            // находятся ниже средних суставов (6, 10, 14, 18) — это кулак.
+            const fingerTips = [8, 12, 16, 20];
+            const fingerBase = [6, 10, 14, 18];
+            
+            let closedFingers = 0;
+            for (let i = 0; i < fingerTips.length; i++) {
+                if (landmarks[fingerTips[i]].y > landmarks[fingerBase[i]].y) {
+                    closedFingers++;
+                }
+            }
+            return closedFingers >= 3; 
+        }
+
+        function onResults(results) {
+            loading.style.display = 'none';
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const hand = results.multiHandLandmarks[0];
+                
+                if (isFist(hand)) {
+                    // КУЛАК: Показываем лого, скрываем космос
+                    logo.style.display = 'block';
+                    spaceBg.style.opacity = '0';
+                } else {
+                    // ОТКРЫТАЯ ЛАДОНЬ: Скрываем лого, показываем космос
+                    logo.style.display = 'none';
+                    spaceBg.style.opacity = '1';
+                }
+            }
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
+    </script>
+</body>
+</html>
